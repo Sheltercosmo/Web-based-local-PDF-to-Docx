@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to Word Conversion</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.min.js"></script>
+    <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+        .file-input-wrapper input[type=file] {
+            font-size: 100px;
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+        }
+        .file-input-wrapper .btn {
+            display: inline-block;
+            padding: 8px 20px;
+            cursor: pointer;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #e8f6fd;
+            color: #2980b9;
+        }
+        .options {
+            margin-top: 20px;
+            display: flex;
+            gap: 20px;
+        }
+        .option {
+            display: flex;
+            align-items: center;
+        }
+        .option label {
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF to Word Conversion</h1>
+        <div class="file-input-wrapper">
+            <button class="btn">Choose PDF File</button>
+            <input type="file" id="pdfInput" accept=".pdf" />
+        </div>
+        <div class="options">
+            <div class="option">
+                <input type="radio" id="normalExtraction" name="extractionMethod" value="normal" checked>
+                <label for="normalExtraction">Normal Extraction</label>
+            </div>
+            <div class="option">
+                <input type="radio" id="ocrExtraction" name="extractionMethod" value="ocr">
+                <label for="ocrExtraction">Use OCR</label>
+            </div>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.worker.min.js';
+
+        async function processPDF(file) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = 'Processing PDF...';
+            const useOCR = document.getElementById('ocrExtraction').checked;
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdfDocument = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+                const numPages = pdfDocument.numPages;
+                let htmlContent = `
+                    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+                    <head>
+                        <meta charset="utf-8">
+                        <title>Extracted PDF Content</title>
+                        <!--[if gte mso 9]>
+                        <xml>
+                            <w:WordDocument>
+                                <w:View>Print</w:View>
+                                <w:Zoom>90</w:Zoom>
+                                <w:DoNotOptimizeForBrowser/>
+                            </w:WordDocument>
+                        </xml>
+                        <![endif]-->
+                        <style>
+                            body { font-family: 'Calibri', sans-serif; }
+                            p { margin: 0; padding: 0; }
+                        </style>
+                    </head>
+                    <body>
+                `;
+
+                for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+                    statusDiv.textContent = `Processing page ${pageNum} of ${numPages}...`;
+                    const page = await pdfDocument.getPage(pageNum);
+                    
+                    let pageText;
+                    if (useOCR) {
+                        const viewport = page.getViewport({ scale: 1.5 });
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+                        await page.render({ canvasContext: context, viewport }).promise;
+                        const { data: { text } } = await Tesseract.recognize(canvas.toDataURL('image/png'));
+                        pageText = text;
+                    } else {
+                        const textContent = await page.getTextContent();
+                        pageText = textContent.items.map(item => item.str).join(' ');
+                    }
+
+                    htmlContent += `<h2>Page ${pageNum}</h2><p>${pageText}</p>`;
+                }
+
+                htmlContent += '</body></html>';
+
+                statusDiv.textContent = 'Generating Word-compatible file...';
+                const blob = new Blob([htmlContent], { type: 'application/msword' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name.replace('.pdf', '.doc');
+                a.click();
+                window.URL.revokeObjectURL(url);
+
+                statusDiv.textContent = 'Conversion complete! Word-compatible file downloaded.';
+            } catch (error) {
+                console.error('Error processing PDF:', error);
+                statusDiv.textContent = 'Error processing PDF. Check console for details.';
+            }
+        }
+
+        document.getElementById('pdfInput').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                processPDF(file);
+            }
+        });
+    </script>
+</body>
+</html>
